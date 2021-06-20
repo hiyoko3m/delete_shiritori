@@ -9,7 +9,6 @@ COPY --from=exporter /requirements.txt /requirements.txt
 RUN pip3 install -r requirements.txt
 
 FROM node:14 AS client-builder
-WORKDIR ./client
 COPY ./client/package.json /package.json
 RUN npm install
 COPY ./client /
