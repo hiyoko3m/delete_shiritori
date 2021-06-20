@@ -12,9 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Change the working directory to client
-      run: |
-        cd client
     - uses: actions/setup-node@v2
       with:
         node-version: 14
@@ -28,5 +25,7 @@ jobs:
           ${{ runner.os }}-node-
     - run: |
         npm install
+      working-directory: ./client
     - run: |
         CI=true npm test
+      working-directory: ./client

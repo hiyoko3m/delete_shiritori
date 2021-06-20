@@ -12,9 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Change the working directory to server
-      run: |
-        cd server
     - uses: actions/setup-python@v2
       with:
         python-version: 3.9
@@ -41,20 +38,27 @@ jobs:
         key: ${{ runner.os }}-poetry-dep-${{ hashFiles('poetry.lock') }}
         restore-keys: |
           ${{ runner.os }}-poetry-dep-
+      working-directory: ./server
     - name: Install dependencies
       run: poetry install
+      working-directory: ./server
     - name: Lint with flake8
       run: |
         poetry run flake8 ./delete_shiritori ./tests --count --show-source --statistics
+      working-directory: ./server
     - name: Lint with black
       run: |
         poetry run black ./delete_shiritori ./tests --check --diff
+      working-directory: ./server
     - name: Lint with mypy
       run: |
         poetry run mypy ./delete_shiritori ./tests --pretty
+      working-directory: ./server
     - name: Lint with isort
       run: |
         poetry run isort ./delete_shiritori ./tests --check-only
+      working-directory: ./server
     - name: Test with pytest
       run: |
         poetry run pytest tests
+      working-directory: ./server
