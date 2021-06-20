@@ -10,9 +10,9 @@ RUN pip3 install -r requirements.txt
 
 FROM node:14 AS client-builder
 WORKDIR ./client
-COPY package.json /package.json
+COPY ./client/package.json /package.json
 RUN npm install
-COPY . /
+COPY ./client /
 RUN npm run build
 
 FROM python:3.9-slim AS runner
