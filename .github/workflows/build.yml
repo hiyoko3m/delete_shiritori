@@ -11,23 +11,6 @@ jobs:
     steps:
     - name: checkout
       uses: actions/checkout@v2
-    - uses: actions/setup-node@v2
-      with:
-        node-version: 14
-    - name: Cache Node
-      id: node-cache
-      uses: actions/cache@v2
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-
-    - run: |
-        npm install
-      working-directory: ./client
-    - run: |
-        CI=true npm run build
-      working-directory: ./client
     - name: Login to Heroku Container Registry
       uses: docker/login-action@v1
       with:
