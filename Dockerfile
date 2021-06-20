@@ -8,7 +8,7 @@ FROM python:3.9 AS builder
 COPY --from=exporter /requirements.txt /requirements.txt
 RUN pip3 install -r requirements.txt
 
-FROM node:14 AS client-builder
+FROM node:14.17-alpine AS client-builder
 COPY ./client/package.json /package.json
 RUN npm install
 COPY ./client /
