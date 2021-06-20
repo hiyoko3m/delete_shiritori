@@ -34,11 +34,10 @@ jobs:
       id: dependencies-cache
       uses: actions/cache@v2
       with:
-        path: .venv
+        path: ./server/.venv
         key: ${{ runner.os }}-poetry-dep-${{ hashFiles('poetry.lock') }}
         restore-keys: |
           ${{ runner.os }}-poetry-dep-
-      working-directory: ./server
     - name: Install dependencies
       run: poetry install
       working-directory: ./server
