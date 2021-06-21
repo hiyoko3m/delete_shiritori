@@ -11,20 +11,27 @@ jobs:
     steps:
     - name: checkout
       uses: actions/checkout@v2
-    - uses: gonuit/heroku-docker-deploy@v1.3.3
+    - name: Login to Heroku Container Registry
+      uses: docker/login-action@v1
       with:
-        email: ${{ secrets.heroku_username }}
-        heroku_api_key: ${{ secrets.heroku_password }}
-        heroku_app_name: delete_shiritori
+        registry: registry.heroku.com
+        username: ${{ secrets.heroku_username }}
+        password: ${{ secrets.heroku_password }}
+    - name: Push to Heroku Container Registry
+      uses: docker/build-push-action@v2
+      with:
+        push: true
+        tags: registry.heroku.com/delete-shiritori
 
-        #    - name: Login to Heroku Container Registry
-        #      uses: docker/login-action@v1
+      #    - uses: akhileshns/heroku-deploy@v3.12.12 # This is the action
+      #      with:
+      #        heroku_api_key: ${{ secrets.heroku_password }}
+      #        heroku_app_name: delete_shiritori
+      #        heroku_email: "YOUR EMAIL"
+      #        usedocker: true
+        #    - uses: gonuit/heroku-docker-deploy@v1.3.3
         #      with:
-        #        registry: registry.heroku.com
-        #        username: ${{ secrets.heroku_username }}
-        #        password: ${{ secrets.heroku_password }}
-        #    - name: Push to Heroku Container Registry
-        #      uses: docker/build-push-action@v2
-        #      with:
-        #        push: true
-        #        tags: registry.heroku.com/delete_shiritori
+        #        email: ${{ secrets.heroku_username }}
+        #        heroku_api_key: ${{ secrets.heroku_password }}
+        #        heroku_app_name: delete_shiritori
+
