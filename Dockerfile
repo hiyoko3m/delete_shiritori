@@ -8,7 +8,7 @@ FROM python:3.9 AS builder
 COPY --from=exporter /requirements.txt /requirements.txt
 RUN pip3 install -r requirements.txt
 
-FROM node:14.17-alpine AS client-builder
+FROM node:16-alpine AS client-builder
 COPY ./client/package.json /package.json
 RUN npm install
 COPY ./client /
@@ -20,5 +20,4 @@ COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
 WORKDIR /app
 COPY ./server/delete_shiritori /app/delete_shiritori
 COPY --from=client-builder /build /app/client
-EXPOSE 80
-CMD ["/usr/local/bin/uvicorn", "delete_shiritori.main:app", "--host", "0.0.0.0", "--port", "80"]
+CMD /usr/local/bin/uvicorn delete_shiritori.main:app --host 0.0.0.0 --port $PORT
