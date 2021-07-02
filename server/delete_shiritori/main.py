@@ -13,7 +13,13 @@ app.mount("/client", StaticFiles(directory="client"), name="client")
 
 settings = Settings()
 
-redis_cli = Redis(host="localhost", port=6379, db=0, decode_responses=True)
+redis_cli = Redis(
+    host="localhost",
+    password=settings.redis_pass,
+    port=6379,
+    db=0,
+    decode_responses=True,
+)
 
 
 @app.get("/")

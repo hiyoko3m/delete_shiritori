@@ -1,4 +1,4 @@
-from pydantic import BaseSettings, BaseModel
+from pydantic import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -6,6 +6,4 @@ class Settings(BaseSettings):
     token_algo: str = "HS256"
     token_ex: int = 120
 
-
-class GameConfig(BaseModel):
-    has_started: bool = False
+    redis_pass: str = "dummy"

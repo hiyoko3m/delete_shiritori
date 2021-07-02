@@ -8,6 +8,7 @@
 check-all: test lint
 
 run:
+	docker compose up -d
 	poetry run uvicorn delete_shiritori.main:app --host 0.0.0.0 --port 8000 \
 		--reload --reload-dir delete_shiritori --reload-dir client
 

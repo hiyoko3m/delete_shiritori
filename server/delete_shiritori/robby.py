@@ -1,9 +1,11 @@
+from logging import getLogger
 from random import choices
-from typing import cast
+from typing import Optional, cast
 from uuid import uuid4
 
 from fastapi import (
     BackgroundTasks,
+    Body,
     Depends,
     APIRouter,
     HTTPException,
@@ -12,39 +14,68 @@ from fastapi import (
     status,
 )
 from jose import jwt
-from redis import Redis
-from starlette.status import HTTP_403_FORBIDDEN
+from redis import WatchError
 
-from .config import GameConfig, Settings
+from .config import Settings
+from .game import init_game
+from .main import redis_cli
+from .models import GameConfig, GameConfigResponse
 from .security import get_current_user, get_current_user_ws
+from .utils import get_now_func
 
 router = APIRouter()
 
 settings = Settings()
 
-redis_cli = Redis(host="localhost", port=6379, db=0, decode_responses=True)
+logger = getLogger("uvicorn.error")
 
 
 @router.post("/room")
 def create():
     room_id = ""
-    while room_id == "" or redis_cli.exists(room_id):
+    while room_id == "" or redis_cli.exists(f"{room_id}"):
         room_id = "".join(choices("123456789", k=6))
-    redis_cli.set(room_id, GameConfig().json())
-    robby_clients[room_id] = []
+    redis_cli.hset(f"{room_id}", "state", 0)
+    redis_cli.hset(f"{room_id}", "config", GameConfig().json())
+    robby_clients[int(room_id)] = []
     return room_id
 
 
 @router.post("/user/{room_id}")
-async def enter(background: BackgroundTasks, room_id: int, user_name: str):
+async def enter(
+    background: BackgroundTasks, room_id: int, user_name: str = Body(..., embed=True)
+):
+    if not redis_cli.exists(f"{room_id}"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You are trying to enter a nonexistent room",
+        )
     if has_started(room_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="The game has been started"
         )
 
+    with redis_cli.pipeline() as pipe:
+        try:
+            pipe.watch(f"{room_id}:members")
+
+            if pipe.sismember(f"{room_id}:members", user_name):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Your name is already used in the room",
+                )
+
+            pipe.sadd(f"{room_id}:members", user_name)
+        except WatchError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Some trouble happens, please retry",
+            )
+
     user_id = str(uuid4())
-    redis_cli.set(user_id, str(room_id))
-    redis_cli.set(f"{user_id}:name", user_name)
+    redis_cli.hset(user_id, "id", str(room_id))
+    redis_cli.hset(user_id, "name", user_name)
+    redis_cli.sadd(f"{room_id}:users", user_id)
 
     token = jwt.encode(
         {"sub": user_id}, settings.token_key, algorithm=settings.token_algo
@@ -56,22 +87,54 @@ async def enter(background: BackgroundTasks, room_id: int, user_name: str):
 
 
 def check_auth(room_id: int, user_id: str) -> bool:
-    return (u := redis_cli.get(user_id)) is not None and int(u) == room_id
+    logger.info(f"[check_auth] user_id: {user_id}, room_id: {room_id}")
+    return (r := redis_cli.hget(user_id, "id")) is not None and int(r) == room_id
+
+
+def current_config(room_id: int) -> Optional[GameConfig]:
+    if (c := redis_cli.hget(f"{room_id}", "config")) is not None:
+        return GameConfig.parse_raw(c)
+    else:
+        return None
+
+
+def current_members(room_id: int) -> list[str]:
+    return list(redis_cli.smembers(f"{room_id}:members"))
+
+
+@router.get("/room/{room_id}", response_model=GameConfigResponse)
+def get_config(
+    room_id: int,
+    user_id: str = Depends(get_current_user),
+):
+    if not check_auth(room_id, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your operation is not allowed",
+        )
+    if (c := current_config(room_id)) is not None:
+        return GameConfigResponse(game_config=c, members=current_members(room_id))
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The room does not exist",
+        )
 
 
 @router.patch("/room/{room_id}", response_model=GameConfig)
-async def config(
+async def update_config(
     background: BackgroundTasks,
     room_id: int,
     game_config: GameConfig,
     user_id: str = Depends(get_current_user),
 ):
-    if check_auth(room_id, user_id) or has_started(room_id):
+    if not check_auth(room_id, user_id) or has_started(room_id):
         raise HTTPException(
-            status_code=HTTP_403_FORBIDDEN, detail="Your operation is not allowed"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your operation is not allowed",
         )
 
-    redis_cli.set(str(room_id), game_config.json())
+    redis_cli.hset(f"{room_id}", "config", game_config.json())
 
     background.add_task(broadcast_update_config, room_id, game_config)
 
@@ -101,13 +164,11 @@ robby_clients: dict[int, list[RobbyClient]] = {}
 
 
 async def broadcast_add_member(room_id: int, user_id: str, user_name: str):
-
     for client in robby_clients[room_id]:
         await client.add_member(user_id, user_name)
 
 
 async def broadcast_delete_member(room_id: int, user_id: str):
-
     for client in robby_clients[room_id]:
         await client.delete_member(user_id)
 
@@ -124,18 +185,18 @@ async def broadcast_start_game(room_id: int):
 
 def has_started(room_id: int) -> bool:
     """assumption: `room_id` exists in Redis"""
-    game_config = GameConfig.parse_raw(cast(str, redis_cli.get(str(room_id))))
-    return game_config.has_started
+    room_state = int(cast(str, redis_cli.hget(f"{room_id}", "state")))
+    return room_state == 1
 
 
 @router.websocket("/room-ws/{room_id}")
 async def room_ws(
     websocket: WebSocket,
-    background: BackgroundTasks,
     room_id: int,
     user_id: str = Depends(get_current_user_ws),
+    get_now=Depends(get_now_func),
 ):
-    if check_auth(room_id, user_id):
+    if not check_auth(room_id, user_id):
         await websocket.close(status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -151,19 +212,31 @@ async def room_ws(
                 continue
 
             if data["op"] == "start":
-                game_config = GameConfig.parse_raw(
-                    cast(str, redis_cli.get(str(room_id)))
-                )
-                game_config.has_started = True
-                redis_cli.set(str(room_id), game_config.json())
-
-                background.add_task(broadcast_start_game, room_id)
+                with redis_cli.pipeline() as pipe:
+                    try:
+                        pipe.watch(f"{room_id}")
+                        if pipe.hget(f"{room_id}", "state") == 0:
+                            pipe.hset(f"{room_id}", "state", 1)
+                            init_game(room_id, get_now)
+                            await broadcast_start_game(room_id)
+                    except WatchError:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail="Another user has already started the game",
+                        )
     except WebSocketDisconnect:
+        robby_clients[room_id].remove(client)
+
         if not has_started(room_id):
-            background.add_task(broadcast_delete_member, room_id, user_id)
+            user_name = cast(str, redis_cli.hget(user_id, "name"))
+            redis_cli.srem(f"{room_id}:users", user_id)
+            redis_cli.srem(f"{room_id}:members", user_name)
+            redis_cli.delete(f"{user_id}")
+
+            await broadcast_delete_member(room_id, user_id)
 
         await websocket.close()
-        robby_clients[room_id].remove(client)
 
         if len(robby_clients[room_id]) == 0:
             del robby_clients[room_id]
+            redis_cli.delete(f"{room_id}")
